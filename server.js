@@ -15,9 +15,12 @@ app.post('/api/info', (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'No URL provided.' });
 
-  execFile('yt-dlp', ['-j', '--no-warnings', url], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout) => {
+  // Added player-client argument to help bypass YouTube bot restrictions
+  execFile('yt-dlp', ['-j', '--no-warnings', '--extractor-args', 'youtube:player-client=android,web', url], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
     if (error) {
-      return res.status(400).json({ error: 'Failed to inspect link or unsupported platform.' });
+      const actualError = stderr || error.message || 'Unknown error';
+      console.error('yt-dlp inspect error:', actualError);
+      return res.status(400).json({ error: `yt-dlp failed: ${actualError}` });
     }
     try {
       let info = JSON.parse(stdout);
@@ -45,17 +48,19 @@ app.post('/api/download', (req, res) => {
 
   let args = [];
   if (format === 'mp3') {
-    args = ['-x', '--audio-format', 'mp3', '--audio-quality', '192K', '-o', outputTemplate, url];
+    args = ['-x', '--audio-format', 'mp3', '--audio-quality', '192K', '--extractor-args', 'youtube:player-client=android,web', '-o', outputTemplate, url];
   } else if (format === 'mp4') {
-    args = ['-f', 'best[ext=mp4]/best', '-o', outputTemplate, url];
+    args = ['-f', 'best[ext=mp4]/best', '--extractor-args', 'youtube:player-client=android,web', '-o', outputTemplate, url];
   } else { // combined (Best Video + Best Audio merged)
-    args = ['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4', '-o', outputTemplate, url];
+    args = ['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4', '--extractor-args', 'youtube:player-client=android,web', '-o', outputTemplate, url];
   }
 
-  execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 50 }, (error) => {
+  execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
     if (error) {
       fs.rmSync(tempDir, { recursive: true, force: true });
-      return res.status(500).json({ error: 'Failed to process or download media file.' });
+      const actualError = stderr || error.message || 'Unknown error';
+      console.error('Download error:', actualError);
+      return res.status(500).json({ error: `Download failed: ${actualError}` });
     }
 
     const files = fs.readdirSync(tempDir);
